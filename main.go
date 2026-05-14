@@ -6,15 +6,38 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
-const (
-	BaseURL  = "https://adapt.fifedu.com/adapt-web"
-	Cookie   = "your-cookie-id"                   // 👈 【必须修改】填入你的完整 Cookie
-	CourseID = "56e639df41224bc1b40b64690bab4a87" // 课程 ID，通常不用动
-)
+const BaseURL = "https://adapt.fifedu.com/adapt-web"
+
+type Config struct {
+	Cookie   string `yaml:"cookie"`
+	CourseID string `yaml:"course_id"`
+}
+
+var config Config
+
+func loadConfig() error {
+	data, err := os.ReadFile("config.yaml")
+	if err != nil {
+		return fmt.Errorf("读取配置文件失败，请确保 config.yaml 文件存在: %v", err)
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("解析配置文件失败: %v", err)
+	}
+	if config.Cookie == "" {
+		return fmt.Errorf("配置文件中 cookie 为空，请填写正确的 cookie")
+	}
+	if config.CourseID == "" {
+		return fmt.Errorf("配置文件中 course_id 为空")
+	}
+	return nil
+}
 
 var client = &http.Client{Timeout: 15 * time.Second}
 
@@ -82,6 +105,14 @@ func main() {
 	fmt.Println("马克思自动刷题引擎 (Go 高速版)")
 	fmt.Println("=========================================")
 
+	// 加载配置文件
+	fmt.Println("📦 正在加载配置文件...")
+	if err := loadConfig(); err != nil {
+		fmt.Printf("❌ %v\n", err)
+		return
+	}
+	fmt.Println("✅ 配置文件加载成功")
+
 	// 1. 获取全书章节目录
 	fmt.Println("📚 正在获取全书章节目录...")
 	chapters, err := getChapterTree()
@@ -134,9 +165,9 @@ func main() {
 
 // 获取整本书的章节树
 func getChapterTree() ([]ChapterNode, error) {
-	url := fmt.Sprintf("%s/courseApi/newCourseChapterList?courseId=%s", BaseURL, CourseID)
+	url := fmt.Sprintf("%s/courseApi/newCourseChapterList?courseId=%s", BaseURL, config.CourseID)
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Add("Cookie", Cookie)
+	req.Header.Add("Cookie", config.Cookie)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -166,9 +197,9 @@ func findLeaves(nodes []ChapterNode) []ChapterNode {
 
 // 获取某个小节下的练习列表
 func getActivities(chapterId string) ([]ActivityItem, error) {
-	url := fmt.Sprintf("%s/courseApi/getActivityListByChapter?courseId=%s&chapterId=%s&type=1", BaseURL, CourseID, chapterId)
+	url := fmt.Sprintf("%s/courseApi/getActivityListByChapter?courseId=%s&chapterId=%s&type=1", BaseURL, config.CourseID, chapterId)
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Add("Cookie", Cookie)
+	req.Header.Add("Cookie", config.Cookie)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -185,9 +216,9 @@ func getActivities(chapterId string) ([]ActivityItem, error) {
 
 // 获取单次练习的批次号（入场券）
 func getBatchNo(activityId string) (string, error) {
-	url := fmt.Sprintf("%s/activityApi/getBatchNo?courseId=%s&activityId=%s&vertexId=", BaseURL, CourseID, activityId)
+	url := fmt.Sprintf("%s/activityApi/getBatchNo?courseId=%s&activityId=%s&vertexId=", BaseURL, config.CourseID, activityId)
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Add("Cookie", Cookie)
+	req.Header.Add("Cookie", config.Cookie)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -247,10 +278,10 @@ func solveActivity(activityId, batchNo string) {
 // 获取题目并直接从 JSON 中剥离正确答案
 func fetchQuestionAndAnswer(activityId, batchNo, qId string) ([]int, string, error) {
 	url := fmt.Sprintf("%s/questionApi/next?activityId=%s&courseId=%s&batchNo=%s&questionId=%s&ifForce=0&type=2",
-		BaseURL, activityId, CourseID, batchNo, qId)
+		BaseURL, activityId, config.CourseID, batchNo, qId)
 
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Add("Cookie", Cookie)
+	req.Header.Add("Cookie", config.Cookie)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -290,7 +321,7 @@ func submitAnswer(activityId, batchNo, qId string, answers []int) (string, error
 
 	payload := SubmitPayload{
 		ActivityID: activityId,
-		CourseID:   CourseID,
+		CourseID:   config.CourseID,
 		BatchNo:    batchNo,
 		UserAnswerJson: AnswerJsonData{
 			QuestionID: qId,
@@ -300,7 +331,7 @@ func submitAnswer(activityId, batchNo, qId string, answers []int) (string, error
 
 	jsonData, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", checkURL, bytes.NewBuffer(jsonData))
-	req.Header.Add("Cookie", Cookie)
+	req.Header.Add("Cookie", config.Cookie)
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := client.Do(req)

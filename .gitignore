@@ -22,3 +22,4 @@ main
 
 go.work
 go.work.sum
+config.yaml
